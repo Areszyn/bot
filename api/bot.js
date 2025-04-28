@@ -1,77 +1,54 @@
-// Vercel Serverless function
-export default async function handler(req, res) {
-  const body = req.body;
+const TelegramBot = require('node-telegram-bot-api');
 
-  const BOT_TOKEN = process.env.BOT_TOKEN;
-  const API_URL = `https://api.telegram.org/bot${BOT_TOKEN}`;
+// Use the environment variable for the bot token
+const token = process.env.BOT_TOKEN;  // Now using BOT_TOKEN from Vercel
 
-  if (body.message || body.callback_query) {
-    const chatId = body.message?.chat.id || body.callback_query?.message.chat.id;
-    const userId = body.message?.from.id || body.callback_query?.from.id;
-    const data = body.callback_query?.data;
+// Create the bot
+const bot = new TelegramBot(token, { polling: true });
 
-    if (body.message?.text === '/start') {
-      // Send Join & Check buttons
-      await fetch(`${API_URL}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: `🚀 Welcome!\n\n👉 Please join our channel to continue.`,
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🔗 Join Channel', url: 'https://t.me/neprosz' }],
-              [{ text: '✅ Check', callback_data: 'check' }]
-            ]
-          }
-        })
-      });
+// Channel ID to check if the user has joined
+const channelId = -1001998495788;  // Replace with your actual channel ID
+
+// Handle '/start' command
+bot.onText(/\/start/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  // Send message with "Join" and "Check" buttons
+  await bot.sendMessage(chatId, 'Welcome! Please check if you have joined the channel:', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: 'Join Channel', url: 'https://t.me/neprosz' },
+          { text: 'Check', callback_data: 'check' }
+        ]
+      ]
     }
+  });
+});
 
-    if (data === 'check') {
-      // Check if user joined
-      const memberStatus = await fetch(`${API_URL}/getChatMember?chat_id=-1001998495788&user_id=${userId}`)
-        .then(res => res.json());
+// Handle inline button presses (callback queries)
+bot.on('callback_query', async (callbackQuery) => {
+  const chatId = callbackQuery.message.chat.id;
+  const data = callbackQuery.data; // Get the callback data ('check' button press)
 
-      const status = memberStatus.result?.status;
+  // Handle "Check" button press
+  if (data === 'check') {
+    try {
+      // Get chat member info to check if the user is in the channel
+      const userInChannel = await bot.getChatMember(channelId, chatId);
 
-      if (status === 'member' || status === 'administrator' || status === 'creator') {
-        // User joined, send non-copyable mini app button
-        await fetch(`${API_URL}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `✅ You have successfully joined!\n\n⭐ Click the button below to start watching IPL streaming!`,
-            parse_mode: "Markdown",
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: '⭐ Watch IPL',
-                    web_app: {
-                      url: 'https://t.me/lifegrambot/Live'
-                    }
-                  }
-                ]
-              ]
-            }
-          })
+      // Check if the user is a member of the channel
+      if (userInChannel.status === 'member' || userInChannel.status === 'administrator') {
+        await bot.sendMessage(chatId, '✅ You have successfully joined the channel!');
+        await bot.sendMessage(chatId, 'Now you can proceed to watch the IPL stream! [Click here to start streaming](https://t.me/lifegrambot/Live)', {
+          parse_mode: 'Markdown'
         });
       } else {
-        // User not joined yet
-        await fetch(`${API_URL}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            callback_query_id: body.callback_query.id,
-            text: "❗ You haven't joined yet. Please join and then press Check.",
-            show_alert: true
-          })
-        });
+        await bot.sendMessage(chatId, '❌ You need to join the channel first.');
       }
+    } catch (error) {
+      console.error('Error while checking channel membership:', error);
+      await bot.sendMessage(chatId, '❌ Something went wrong, please try again later.');
     }
   }
-
-  res.status(200).send('OK');
-}
+});
